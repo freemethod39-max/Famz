@@ -13,9 +13,10 @@ import { PiCodeBold } from "react-icons/pi";
 import { LuBadge } from "react-icons/lu";
 import { LiaLayerGroupSolid } from "react-icons/lia";
 import { useNavbar } from '../contexts/NavbarContext';
+import { supabase } from '../lib/supabase';
 
 // ===================================
-// DATA PROYEK (CONTOH)
+// DATA PROYEK (FALLBACK - will be replaced by DB data)
 // ===================================
 const dummyProjects = [
     {
@@ -350,10 +351,78 @@ function ProjectSection() {
   const [previewCertificate, setPreviewCertificate] = useState(null);
   const { hideNavbar, showNavbar } = useNavbar();
 
+  // === Database States ===
+  const [projectsFromDB, setProjectsFromDB] = useState([]);
+  const [certificatesFromDB, setCertificatesFromDB] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadingCerts, setLoadingCerts] = useState(true);
+
   // === CHANGE START: State dan konstanta untuk Show More/Less ===
   const INITIAL_CERTIFICATES_TO_SHOW = 6;
   const [visibleCertificatesCount, setVisibleCertificatesCount] = useState(INITIAL_CERTIFICATES_TO_SHOW);
   // === CHANGE END ===
+
+  // Fetch projects from database
+  useEffect(() => {
+    async function fetchProjects() {
+      try {
+        console.log('🔍 Fetching projects from Supabase...');
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('❌ Error fetching projects:', error);
+          throw error;
+        }
+        
+        if (data && data.length > 0) {
+          console.log('✅ Projects loaded from database:', data.length, 'projects');
+          console.log('📊 Projects data:', data);
+          setProjectsFromDB(data);
+        } else {
+          console.log('⚠️ No projects found in database, using fallback data');
+        }
+      } catch (err) {
+        console.error('❌ Error fetching projects:', err);
+      } finally {
+        setLoadingProjects(false);
+      }
+    }
+    fetchProjects();
+  }, []);
+
+  // Fetch certificates from database
+  useEffect(() => {
+    async function fetchCertificates() {
+      try {
+        console.log('🔍 Fetching certificates from Supabase...');
+        const { data, error } = await supabase
+          .from('certificates')
+          .select('*')
+          .order('issue_date', { ascending: false });
+
+        if (error) {
+          console.error('❌ Error fetching certificates:', error);
+          throw error;
+        }
+        
+        if (data && data.length > 0) {
+          console.log('✅ Certificates loaded from database:', data.length, 'certificates');
+          console.log('📜 Certificates data:', data);
+          setCertificatesFromDB(data);
+        } else {
+          console.log('⚠️ No certificates found in database, using fallback data');
+        }
+      } catch (err) {
+        console.error('❌ Error fetching certificates:', err);
+      } finally {
+        setLoadingCerts(false);
+      }
+    }
+    fetchCertificates();
+  }, []);
 
   useEffect(() => {
     if (previewCertificate) {
@@ -375,13 +444,49 @@ function ProjectSection() {
     { id: 'Tech Stack', label: 'Tech Stack', icon: <LiaLayerGroupSolid className="text-[1.5em] mb-1" /> },
   ];
 
-  const filteredProjects = dummyProjects.filter(
-    (p) => p.category === projectCategory
-  );
+  // Use database projects if available, fallback to dummy data
+  const activeProjects = projectsFromDB.length > 0 ? projectsFromDB : dummyProjects;
+  
+  console.log('🎯 Active projects source:', projectsFromDB.length > 0 ? 'DATABASE' : 'FALLBACK');
+  console.log('📦 Total projects:', activeProjects.length);
+  
+  // Transform database projects to match UI format
+  const transformedProjects = activeProjects.map(p => {
+    // If has UUID id, it's from database - transform it
+    if (p.id && typeof p.id === 'string' && p.id.includes('-')) {
+      return {
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        tech: p.tags || [],
+        link: p.demo_url || p.github_url || '#',
+        image: p.image_url,
+        category: 'Database', // All DB projects in one category
+        featured: p.featured || false
+      };
+    }
+    // Static data already in correct format
+    return p;
+  });
+  
+  console.log('🔄 Transformed projects:', transformedProjects.length);
+  
+  // Filter projects by category (only applies to static dummy data)
+  const filteredProjects = transformedProjects.filter((p) => {
+    // If from database (has category 'Database'), show all
+    if (p.category === 'Database') return true;
+    // For dummy data, filter by selected category
+    return p.category === projectCategory;
+  });
+  
+  console.log('✨ Filtered projects to display:', filteredProjects.length);
+
+  // Use database certificates if available, fallback to static data
+  const activeCertificates = certificatesFromDB.length > 0 ? certificatesFromDB : userCertificates;
 
   // === CHANGE START: Handler untuk tombol Show More/Less ===
   const handleShowMore = () => {
-    setVisibleCertificatesCount(userCertificates.length);
+    setVisibleCertificatesCount(activeCertificates.length);
   };
 
   const handleShowLess = () => {
@@ -461,54 +566,88 @@ function ProjectSection() {
             >
               {activeTab === 'Projects' && (
                 <>
-                  <div className="flex justify-center gap-4 mb-8">
-                    <button className={`px-5 py-2 rounded-full font-semibold transition-all duration-200 border ${projectCategory === 'Web/Apps' ? 'bg-cyan-700/80 text-white border-cyan-400 shadow-cyan-500/10 shadow-lg' : 'bg-slate-900/60 text-cyan-200 border-slate-700 hover:bg-cyan-800/40 hover:text-white'}`} onClick={() => setProjectCategory('Web/Apps')}>Web/Apps</button>
-                    <button className={`px-5 py-2 rounded-full font-semibold transition-all duration-200 border ${projectCategory === '3D Design' ? 'bg-cyan-700/80 text-white border-cyan-400 shadow-cyan-500/10 shadow-lg' : 'bg-slate-900/60 text-cyan-200 border-slate-700 hover:bg-cyan-800/40 hover:text-white'}`} onClick={() => setProjectCategory('3D Design')}>3D Design</button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    {filteredProjects.length > 0 ? (
-                      filteredProjects.map((p, i) => <ProjectCard key={i} project={p} />)
-                    ) : (
-                      <div className="col-span-full text-center text-slate-400 py-12">No projects in this category yet.</div>
-                    )}
-                  </div>
+                  {/* Only show category buttons for dummy data */}
+                  {projectsFromDB.length === 0 && (
+                    <div className="flex justify-center gap-4 mb-8">
+                      <button className={`px-5 py-2 rounded-full font-semibold transition-all duration-200 border ${projectCategory === 'Web/Apps' ? 'bg-cyan-700/80 text-white border-cyan-400 shadow-cyan-500/10 shadow-lg' : 'bg-slate-900/60 text-cyan-200 border-slate-700 hover:bg-cyan-800/40 hover:text-white'}`} onClick={() => setProjectCategory('Web/Apps')}>Web/Apps</button>
+                      <button className={`px-5 py-2 rounded-full font-semibold transition-all duration-200 border ${projectCategory === '3D Design' ? 'bg-cyan-700/80 text-white border-cyan-400 shadow-cyan-500/10 shadow-lg' : 'bg-slate-900/60 text-cyan-200 border-slate-700 hover:bg-cyan-800/40 hover:text-white'}`} onClick={() => setProjectCategory('3D Design')}>3D Design</button>
+                    </div>
+                  )}
+                  
+                  {loadingProjects ? (
+                    <div className="flex justify-center py-12">
+                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyan-400"></div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                      {filteredProjects.length > 0 ? (
+                        filteredProjects.map((p, i) => (
+                          <ProjectCard key={p.id || i} project={p} />
+                        ))
+                      ) : (
+                        <div className="col-span-full text-center text-slate-400 py-12">
+                          No projects available yet.
+                          {projectsFromDB.length === 0 && (
+                            <div className="mt-4 text-sm text-cyan-400">
+                              Add projects via Admin Dashboard to see them here!
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
               {activeTab === 'Certificate' && (
                 <div className="space-y-8">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
-                    {/* === CHANGE: Menggunakan slice untuk menampilkan sertifikat yang terlihat === */}
-                    <AnimatePresence>
-                      {userCertificates.slice(0, visibleCertificatesCount).map((cert, i) => (
-                        <CertificateCard key={i} cert={cert} onClick={setPreviewCertificate} />
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                  {/* === CHANGE START: Menambahkan tombol Show More/Less secara kondisional === */}
-                  {userCertificates.length > INITIAL_CERTIFICATES_TO_SHOW && (
-                    <div className="flex justify-center mt-12">
-                      {visibleCertificatesCount < userCertificates.length ? (
-                        <motion.button
-                          onClick={handleShowMore}
-                          className="group bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 px-8 py-3 rounded-full text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-cyan-500/25"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                        >
-                          Show More
-                        </motion.button>
-                      ) : (
-                        <motion.button
-                          onClick={handleShowLess}
-                          className="group bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 px-8 py-3 rounded-full text-white font-semibold transition-all duration-300 shadow-lg"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                        >
-                          Show Less
-                        </motion.button>
-                      )}
+                  {loadingCerts ? (
+                    <div className="flex justify-center py-12">
+                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-400"></div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                        <AnimatePresence>
+                          {activeCertificates.slice(0, visibleCertificatesCount).map((cert, i) => {
+                            // Transform DB data to match CertificateCard props
+                            const certData = cert.id ? {
+                              // From database (has UUID id)
+                              title: cert.title,
+                              issuer: cert.issuer,
+                              date: cert.issue_date ? new Date(cert.issue_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '',
+                              link: cert.credential_url || '#',
+                              image: cert.image_url || ''
+                            } : cert; // From static data
+                            
+                            return <CertificateCard key={cert.id || i} cert={certData} onClick={setPreviewCertificate} />;
+                          })}
+                        </AnimatePresence>
+                      </div>
+                      {activeCertificates.length > INITIAL_CERTIFICATES_TO_SHOW && (
+                        <div className="flex justify-center mt-12">
+                          {visibleCertificatesCount < activeCertificates.length ? (
+                            <motion.button
+                              onClick={handleShowMore}
+                              className="group bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 px-8 py-3 rounded-full text-white font-semibold transition-all duration-300 shadow-lg hover:shadow-cyan-500/25"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                            >
+                              Show More ({activeCertificates.length - visibleCertificatesCount} more)
+                            </motion.button>
+                          ) : (
+                            <motion.button
+                              onClick={handleShowLess}
+                              className="group bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 px-8 py-3 rounded-full text-white font-semibold transition-all duration-300 shadow-lg"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                            >
+                              Show Less
+                            </motion.button>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
-                  {/* === CHANGE END === */}
                 </div>
               )}
               {activeTab === 'Tech Stack' && (

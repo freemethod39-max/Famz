@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 const AdminContext = createContext();
 
@@ -10,18 +11,14 @@ export const useAdmin = () => {
   return context;
 };
 
-// Admin credentials (In production, this should be handled by a backend)
-const ADMIN_CREDENTIALS = {
-  username: 'admin',
-  password: 'zain2024@admin', // Strong password for admin
-  sessionDuration: 30 * 60 * 1000 // 30 minutes in milliseconds
-};
-
 export const AdminProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [lockoutTime, setLockoutTime] = useState(null);
+  const [adminData, setAdminData] = useState(null);
+
+  const SESSION_DURATION = 30 * 60 * 1000; // 30 minutes
 
   // Check for existing session on load
   useEffect(() => {
@@ -29,27 +26,30 @@ export const AdminProvider = ({ children }) => {
       const sessionData = localStorage.getItem('adminSession');
       if (sessionData) {
         try {
-          const { timestamp, authenticated } = JSON.parse(sessionData);
+          const { timestamp, authenticated, adminId } = JSON.parse(sessionData);
           const now = new Date().getTime();
           
           // Check if session is still valid (30 minutes)
-          if (authenticated && (now - timestamp) < ADMIN_CREDENTIALS.sessionDuration) {
+          if (authenticated && adminId && (now - timestamp) < SESSION_DURATION) {
             setIsAuthenticated(true);
+            setAdminData({ id: adminId });
           } else {
             // Session expired, remove it
             localStorage.removeItem('adminSession');
             setIsAuthenticated(false);
+            setAdminData(null);
           }
         } catch (error) {
           localStorage.removeItem('adminSession');
           setIsAuthenticated(false);
+          setAdminData(null);
         }
       }
       setIsLoading(false);
     };
 
     checkSession();
-  }, []);
+  }, [SESSION_DURATION]);
 
   // Auto logout after session expires
   useEffect(() => {
@@ -60,7 +60,7 @@ export const AdminProvider = ({ children }) => {
           const { timestamp } = JSON.parse(sessionData);
           const now = new Date().getTime();
           
-          if ((now - timestamp) >= ADMIN_CREDENTIALS.sessionDuration) {
+          if ((now - timestamp) >= SESSION_DURATION) {
             logout();
           }
         }
@@ -68,9 +68,9 @@ export const AdminProvider = ({ children }) => {
 
       return () => clearInterval(sessionTimer);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, SESSION_DURATION]);
 
-  // Login function
+  // Login function with database verification
   const login = async (username, password) => {
     // Check if account is locked
     if (lockoutTime && new Date().getTime() < lockoutTime) {
@@ -78,35 +78,72 @@ export const AdminProvider = ({ children }) => {
       throw new Error(`Account terkunci. Coba lagi dalam ${remainingTime} menit.`);
     }
 
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // Call Supabase RPC function to verify login
+      const { data, error } = await supabase.rpc('verify_admin_login', {
+        p_username: username,
+        p_password: password
+      });
 
-    if (username === ADMIN_CREDENTIALS.username && password === ADMIN_CREDENTIALS.password) {
-      // Successful login
-      const sessionData = {
-        authenticated: true,
-        timestamp: new Date().getTime(),
-        username: username
-      };
-      
-      localStorage.setItem('adminSession', JSON.stringify(sessionData));
-      setIsAuthenticated(true);
-      setLoginAttempts(0);
-      setLockoutTime(null);
-      return true;
-    } else {
-      // Failed login
-      const newAttempts = loginAttempts + 1;
-      setLoginAttempts(newAttempts);
-
-      // Lock account after 3 failed attempts for 15 minutes
-      if (newAttempts >= 3) {
-        const lockTime = new Date().getTime() + (15 * 60 * 1000); // 15 minutes
-        setLockoutTime(lockTime);
-        throw new Error('Terlalu banyak percobaan login yang gagal. Account terkunci selama 15 menit.');
+      if (error) {
+        console.error('Login error:', error);
+        throw new Error('Terjadi kesalahan saat login. Silakan coba lagi.');
       }
 
-      throw new Error(`Username atau password salah. Sisa percobaan: ${3 - newAttempts}`);
+      // Check if login successful
+      if (data && data.length > 0 && data[0].success) {
+        const admin = data[0];
+        
+        // Update last login timestamp
+        await supabase.rpc('update_admin_last_login', {
+          p_admin_id: admin.admin_id
+        });
+
+        // Create session
+        const sessionData = {
+          authenticated: true,
+          timestamp: new Date().getTime(),
+          adminId: admin.admin_id,
+          username: admin.username,
+          email: admin.email,
+          fullName: admin.full_name
+        };
+        
+        localStorage.setItem('adminSession', JSON.stringify(sessionData));
+        setIsAuthenticated(true);
+        setAdminData({
+          id: admin.admin_id,
+          username: admin.username,
+          email: admin.email,
+          fullName: admin.full_name
+        });
+        setLoginAttempts(0);
+        setLockoutTime(null);
+        
+        console.log('✅ Admin logged in successfully:', admin.username);
+        return true;
+      } else {
+        // Failed login
+        const newAttempts = loginAttempts + 1;
+        setLoginAttempts(newAttempts);
+
+        // Lock account after 3 failed attempts for 15 minutes
+        if (newAttempts >= 3) {
+          const lockTime = new Date().getTime() + (15 * 60 * 1000); // 15 minutes
+          setLockoutTime(lockTime);
+          throw new Error('Terlalu banyak percobaan login yang gagal. Account terkunci selama 15 menit.');
+        }
+
+        throw new Error(`Username atau password salah. Sisa percobaan: ${3 - newAttempts}`);
+      }
+    } catch (err) {
+      // If error already thrown, re-throw it
+      if (err.message.includes('Account terkunci') || err.message.includes('Username atau password salah')) {
+        throw err;
+      }
+      
+      console.error('Login error:', err);
+      throw new Error('Terjadi kesalahan saat login. Silakan coba lagi.');
     }
   };
 
@@ -114,17 +151,22 @@ export const AdminProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('adminSession');
     setIsAuthenticated(false);
+    setAdminData(null);
     setLoginAttempts(0);
     setLockoutTime(null);
+    console.log('🚪 Admin logged out');
   };
 
   // Extend session
   const extendSession = () => {
-    if (isAuthenticated) {
+    if (isAuthenticated && adminData) {
       const sessionData = {
         authenticated: true,
         timestamp: new Date().getTime(),
-        username: ADMIN_CREDENTIALS.username
+        adminId: adminData.id,
+        username: adminData.username,
+        email: adminData.email,
+        fullName: adminData.fullName
       };
       localStorage.setItem('adminSession', JSON.stringify(sessionData));
     }
@@ -136,7 +178,7 @@ export const AdminProvider = ({ children }) => {
     if (sessionData && isAuthenticated) {
       const { timestamp } = JSON.parse(sessionData);
       const elapsed = new Date().getTime() - timestamp;
-      const remaining = ADMIN_CREDENTIALS.sessionDuration - elapsed;
+      const remaining = SESSION_DURATION - elapsed;
       return Math.max(0, remaining);
     }
     return 0;
@@ -145,6 +187,7 @@ export const AdminProvider = ({ children }) => {
   const value = {
     isAuthenticated,
     isLoading,
+    adminData,
     login,
     logout,
     extendSession,

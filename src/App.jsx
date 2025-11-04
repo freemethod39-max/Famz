@@ -221,7 +221,9 @@ function App() {
             </section>
 
             {/* BAGIAN CONTACT */}
-            <Contact />
+            <section id="contact" className="py-20">
+              <Contact />
+            </section>
 
             {/* FOOTER */}
             <footer className="py-8 text-center text-gray-400">

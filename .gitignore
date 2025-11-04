@@ -1,13 +1,18 @@
-<<<<<<< HEAD
-=======
 # Environment variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
->>>>>>> 149612e4d11739551c69e3fce2c79f5dbd2692e7
+# SECURITY: Admin credentials and sensitive SQL files
+supabase/insert-admin.sql
+supabase/*admin*.sql
+**/backup*.sql
+**/*password*.sql
+
 # Logs
 logs
 *.log
@@ -17,33 +22,20 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-<<<<<<< HEAD
-node_modules
-dist
-dist-ssr
-*.local
-=======
 # Dependencies
 node_modules/
 .pnp
 .pnp.js
 
 # Production builds
-.next/
-.next
-*/.next/
-*/.next
-**/.next/
-**/.next
-out/
 dist/
 dist-ssr/
 build/
->>>>>>> 149612e4d11739551c69e3fce2c79f5dbd2692e7
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo
@@ -51,19 +43,23 @@ build/
 *.njsproj
 *.sln
 *.sw?
-<<<<<<< HEAD
-=======
+*.swp
+*~
 
-# Prisma
-prisma/migrations/
-prisma/dev.db
-prisma/dev.db-journal
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# OS files
+Thumbs.db
+desktop.ini
 
 # Uploads
 uploads/
 public/uploads/
 
-/src/generated/prisma
-
+# Vercel
 .vercel
->>>>>>> 149612e4d11739551c69e3fce2c79f5dbd2692e7

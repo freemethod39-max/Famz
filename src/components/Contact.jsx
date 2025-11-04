@@ -12,15 +12,14 @@ import {
   FaHeart,
   FaReply,
   FaTrash,
-  FaCog
+  FaCog,
+  FaThumbtack
 } from 'react-icons/fa';
 import { SiTiktok } from 'react-icons/si';
-import AdminMessages from './AdminMessages';
+import AdminDashboard from './AdminDashboard';
 import AdminLogin from './AdminLogin';
 import { useAdmin } from '../contexts/AdminContext';
-
-// JSON file untuk menyimpan comments
-const COMMENTS_FILE = '/comments.json';
+import { supabase } from '../lib/supabase';
 
 const Contact = () => {
   // States untuk contact form
@@ -45,40 +44,81 @@ const Contact = () => {
 
   const { isAuthenticated } = useAdmin();
 
-  // Load comments dari localStorage (simulasi JSON file)
+  // Load comments dari Supabase
   useEffect(() => {
-    const savedComments = localStorage.getItem('portfolioComments');
-    if (savedComments) {
-      setComments(JSON.parse(savedComments));
-    }
+    fetchComments();
   }, []);
+
+  // Fetch comments dari database
+  const fetchComments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .select('*')
+        .order('is_pinned', { ascending: false })  // Pinned comments first
+        .order('created_at', { ascending: false }); // Then by date
+
+      if (error) throw error;
+      
+      if (data) {
+        console.log('✅ Comments fetched from database:', data.length);
+        // Transform data dari Supabase ke format yang dipakai component
+        const transformedComments = data.map(comment => ({
+          id: comment.id,
+          name: comment.name,
+          message: comment.message,
+          photo: comment.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.name)}&background=00ffdc&color=000754&size=100`,
+          timestamp: comment.created_at,
+          likes: comment.likes || 0,
+          isPinned: comment.is_pinned || false  // ✨ NEW: Pin status
+        }));
+        setComments(transformedComments);
+      }
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+      // Fallback ke localStorage jika gagal
+      const savedComments = localStorage.getItem('portfolioComments');
+      if (savedComments) {
+        setComments(JSON.parse(savedComments));
+      }
+    }
+  };
 
   // Handle contact form
   const handleContactSubmit = async (e) => {
     e.preventDefault();
     setIsSubmittingContact(true);
     
-    // Save message to localStorage (simulasi JSON file)
-    const newMessage = {
-      id: Date.now(),
-      name: contactForm.name,
-      email: contactForm.email,
-      message: contactForm.message,
-      timestamp: new Date().toISOString(),
-      status: 'unread'
-    };
+    try {
+      // Save message to Supabase
+      const { data, error } = await supabase
+        .from('contact_messages')
+        .insert([
+          {
+            name: contactForm.name,
+            email: contactForm.email,
+            message: contactForm.message,
+            status: 'unread'
+          }
+        ])
+        .select();
 
-    const savedMessages = localStorage.getItem('portfolioContactMessages');
-    const messages = savedMessages ? JSON.parse(savedMessages) : [];
-    const updatedMessages = [newMessage, ...messages];
-    localStorage.setItem('portfolioContactMessages', JSON.stringify(updatedMessages));
-    
-    // Simulasi pengiriman email
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    alert('Pesan berhasil dikirim! Terima kasih telah menghubungi saya.');
-    setContactForm({ name: '', email: '', message: '' });
-    setIsSubmittingContact(false);
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Message saved to database:', data);
+
+      alert('Pesan berhasil dikirim! Terima kasih telah menghubungi saya. 📧');
+      setContactForm({ name: '', email: '', message: '' });
+      
+    } catch (error) {
+      console.error('Error submitting contact form:', error);
+      alert(`Gagal mengirim pesan: ${error.message}. Pastikan koneksi database aktif.`);
+    } finally {
+      setIsSubmittingContact(false);
+    }
   };
 
   // Handle photo upload
@@ -98,38 +138,82 @@ const Contact = () => {
   };
 
   // Handle comment submit
-  const handleCommentSubmit = (e) => {
+  const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (!commentForm.name.trim() || !commentForm.message.trim()) return;
 
     setIsSubmittingComment(true);
 
-    const newComment = {
-      id: Date.now(),
-      name: commentForm.name,
-      message: commentForm.message,
-      photo: commentForm.photoPreview || `https://ui-avatars.com/api/?name=${encodeURIComponent(commentForm.name)}&background=00ffdc&color=000754&size=100`,
-      timestamp: new Date().toISOString(),
-      likes: 0
-    };
+    try {
+      // Save comment to Supabase
+      const { data, error } = await supabase
+        .from('comments')
+        .insert([
+          {
+            name: commentForm.name,
+            message: commentForm.message,
+            photo_url: commentForm.photoPreview || null,
+            likes: 0
+          }
+        ])
+        .select();
 
-    const updatedComments = [newComment, ...comments];
-    setComments(updatedComments);
-    localStorage.setItem('portfolioComments', JSON.stringify(updatedComments));
-    
-    setCommentForm({ name: '', message: '', photo: null, photoPreview: null });
-    setIsSubmittingComment(false);
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Comment saved to database:', data);
+
+      // Refresh comments list dari database
+      await fetchComments();
+      
+      // Reset form
+      setCommentForm({ name: '', message: '', photo: null, photoPreview: null });
+      
+      // Show success message
+      alert('Comment berhasil dipost! 🎉');
+      
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+      alert(`Gagal posting comment: ${error.message}. Pastikan koneksi database aktif.`);
+    } finally {
+      setIsSubmittingComment(false);
+    }
   };
 
   // Handle like comment
-  const handleLikeComment = (commentId) => {
-    const updatedComments = comments.map(comment => 
-      comment.id === commentId 
-        ? { ...comment, likes: comment.likes + 1 }
-        : comment
-    );
-    setComments(updatedComments);
-    localStorage.setItem('portfolioComments', JSON.stringify(updatedComments));
+  const handleLikeComment = async (commentId) => {
+    try {
+      // Find current comment
+      const comment = comments.find(c => c.id === commentId);
+      if (!comment) return;
+
+      // Update likes in Supabase
+      const { error } = await supabase
+        .from('comments')
+        .update({ likes: comment.likes + 1 })
+        .eq('id', commentId);
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Like updated in database');
+
+      // Update local state untuk tampilan langsung
+      const updatedComments = comments.map(c => 
+        c.id === commentId 
+          ? { ...c, likes: c.likes + 1 }
+          : c
+      );
+      setComments(updatedComments);
+      
+    } catch (error) {
+      console.error('Error liking comment:', error);
+      alert(`Gagal like comment: ${error.message}`);
+    }
   };
 
 
@@ -434,8 +518,20 @@ const Contact = () => {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9, x: -100 }}
                       transition={{ duration: 0.5, delay: index * 0.1 }}
-                      className="group relative bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/30 hover:border-cyan-400/30 transition-all duration-300"
+                      className={`group relative backdrop-blur-sm rounded-2xl p-6 border transition-all duration-300 ${
+                        comment.isPinned 
+                          ? 'bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-cyan-400/50 shadow-lg shadow-cyan-500/10' 
+                          : 'bg-slate-800/50 border-slate-700/30 hover:border-cyan-400/30'
+                      }`}
                     >
+                      {/* 📌 Pin Indicator */}
+                      {comment.isPinned && (
+                        <div className="absolute top-3 right-3 flex items-center gap-2 bg-cyan-500/20 backdrop-blur-md px-3 py-1.5 rounded-full border border-cyan-400/30">
+                          <FaThumbtack className="w-4 h-4 text-cyan-400" />
+                          <span className="text-xs font-semibold text-cyan-300">Pinned</span>
+                        </div>
+                      )}
+                      
                       <div className="flex gap-4">
                         <img 
                           src={comment.photo} 
@@ -485,10 +581,10 @@ const Contact = () => {
         </div>
       </div>
 
-      {/* Admin Messages Modal */}
+      {/* Admin Dashboard Modal */}
       <AnimatePresence>
         {isAdminOpen && (
-          <AdminMessages 
+          <AdminDashboard 
             isOpen={isAdminOpen}
             onClose={() => setIsAdminOpen(false)}
           />
